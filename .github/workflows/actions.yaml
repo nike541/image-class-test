@@ -38,7 +38,7 @@ jobs:
 
       - name: generate image tag
         id: tag
-        run: echo "image=ghcr.io/${{ github.repository_owner }}/train_qat_ao:latest::${{ github.sha }}" >> $GITHUB_OUTPUT
+        run: echo "image=ghcr.io/${{ github.repository_owner }}/train_qat_ao:${{ github.sha }}" >> $GITHUB_OUTPUT
        
       - name: Build and Push Docker Image to GHCR
         uses: docker/build-push-action@v5
