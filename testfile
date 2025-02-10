@@ -1,0 +1,9 @@
+torch==2.6.0
+torchaudio==2.6.0
+torchsampler==0.1.2
+torchvision==0.21.0
+tqdm==4.67.1
+mlflow
+
+
+ docker run -it --runtime nvidia --gpus all -ipc host -v /home/iwizards/Documents/nikhil/archive:/archive -p 8080:8080 testtorch_v4:latest bash python3 train_qat_ao.py -i /archive -o /archive -sz 224 -b 32 -e 1 --model-name m12erw3 -u http://localhost:8080 -exp exp123 -lr 0.0001 --device 0
