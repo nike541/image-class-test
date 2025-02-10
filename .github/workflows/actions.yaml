@@ -1,0 +1,74 @@
+name: Docker Build and Deploy
+on:
+  push:
+    branches: 
+      - main
+  pull_request:
+    branches: 
+      - main
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+jobs:
+  build: 
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      packages: write
+      actions: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.github_username }}
+          password: ${{ secrets.github_token }}
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/train_qat_ao:latest
+
+  Deploy-dev:
+    needs: build
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      packages: write
+      actions: write
+    steps:
+      - name: Pull Docker Image
+        run: docker pull ${{ secrets.DOCKER_USERNAME }}/train_qat_ao:latest
+
+      - name: Remove Existing Container (if running)
+        run: docker rm -f train_qat_ao || true
+
+      - name: Run Docker Container
+        run: docker run -d --name train_qat_ao --runtime=nvidia --gpus=all -p 8080:8080 ${{ secrets.DOCKER_USERNAME }}/train_qat_ao:latest
+
+  Deploy-prod:
+    needs: Deploy-dev
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Deploy to AWS GPU Instance
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ${{ secrets.SSH_KEY }} ubuntu@${{ secrets.AWS_PUBLIC_IP }} << 'EOF'
+          sudo apt-get update
+          sudo apt-get install -y nvidia-driver-550 nvidia-container-toolkit
+          docker pull ${{ secrets.DOCKER_USERNAME }}/train_qat_ao:latest
+          docker rm -f train_qat_ao || true
+          docker run -d --name train_qat_ao -p 5000:5000 --gpus all ${{ secrets.DOCKER_USERNAME }}/train_qat_ao:latest
+          EOF
