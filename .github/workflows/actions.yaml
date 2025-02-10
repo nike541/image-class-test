@@ -16,6 +16,8 @@ env:
 jobs:
   build: 
     runs-on: self-hosted
+    outputs:
+      image: ${{ steps.image-tag.outputs.image }}
     permissions:
       contents: read
       packages: write
@@ -34,15 +36,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-
+      - name: generate image tag
+        id: tag
+        run: echo "image=ghcr.io/${{ github.repository_owner }}/train_qat_ao:latest::${{ github.sha }}" >> $GITHUB_OUTPUT
+       
       - name: Build and Push Docker Image to GHCR
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/train_qat_ao:latest
+          tags: ${{ steps.tag.outputs.image }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache
 
   Deploy-dev:
     needs: build
