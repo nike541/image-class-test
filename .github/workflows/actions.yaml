@@ -17,7 +17,7 @@ jobs:
   build: 
     runs-on: self-hosted
     outputs:
-      image: ${{ steps.image-tag.outputs.image }}
+      image: ${{ steps.tag.outputs.image }}
     permissions:
       contents: read
       packages: write
@@ -36,9 +36,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: generate image tag
+      - name: Generate image tag
         id: tag
-        run: echo "image=ghcr.io/${{ github.repository_owner }}/train_qat_ao:${{ github.sha }}" >> $GITHUB_OUTPUT
+        run: |
+          echo "image=ghcr.io/${{ github.repository_owner }}/train_qat_ao:${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "image_latest=ghcr.io/${{ github.repository_owner }}/train_qat_ao:latest" >> $GITHUB_OUTPUT
        
       - name: Build and Push Docker Image to GHCR
         uses: docker/build-push-action@v5
@@ -47,9 +49,18 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.tag.outputs.image }}
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache
+          tags: |
+            ${{ steps.tag.outputs.image }}
+            ${{ steps.tag.outputs.image_latest }}
+          cache-from: |
+            type=registry,ref=${{ steps.tag.outputs.image_latest }}
+            type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
   Deploy-dev:
     needs: build
@@ -59,14 +70,25 @@ jobs:
       packages: write
       actions: write
     steps:
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Pull Docker Image
-        run: docker pull ${{ secrets.DOCKER_USERNAME }}/train_qat_ao:latest
+        run: docker pull ${{ needs.build.outputs.image }}
 
       - name: Remove Existing Container (if running)
         run: docker rm -f train_qat_ao || true
 
       - name: Run Docker Container
-        run: docker run -d --name train_qat_ao --runtime=nvidia --gpus=all -p 8080:8080 ${{ secrets.DOCKER_USERNAME }}/train_qat_ao:latest
+        run: |
+          docker run -d --name train_qat_ao \
+            --runtime=nvidia --gpus=all \
+            -p 8080:8080 \
+            ${{ needs.build.outputs.image }}
 
   Deploy-prod:
     needs: Deploy-dev
@@ -74,10 +96,23 @@ jobs:
     steps:
       - name: Deploy to AWS GPU Instance
         run: |
-          ssh -o StrictHostKeyChecking=no -i ${{ secrets.SSH_KEY }} ubuntu@${{ secrets.AWS_PUBLIC_IP }} << 'EOF'
+          ssh -o StrictHostKeyChecking=no -i ${{ secrets.SSH_KEY }} ubuntu@${{ secrets.AWS_PUBLIC_IP }} << 'ENDSSH'
+          # Login to GHCR
+          echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+          # Pull the image from GHCR
+          docker pull ${{ needs.build.outputs.image }}
+          
+          # Update NVIDIA drivers and toolkit if needed
           sudo apt-get update
           sudo apt-get install -y nvidia-driver-550 nvidia-container-toolkit
-          docker pull ${{ secrets.DOCKER_USERNAME }}/train_qat_ao:latest
+          
+          # Remove existing container
           docker rm -f train_qat_ao || true
-          docker run -d --name train_qat_ao -p 5000:5000 --gpus all ${{ secrets.DOCKER_USERNAME }}/train_qat_ao:latest
-          EOF
+          
+          # Run new container
+          docker run -d --name train_qat_ao \
+            -p 5000:5000 \
+            --gpus all \
+            ${{ needs.build.outputs.image }}
+          ENDSSH
