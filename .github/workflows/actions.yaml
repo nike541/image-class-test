@@ -90,8 +90,21 @@ jobs:
             -p 8080:8080 \
             ${{ needs.build.outputs.image }}
 
-  Deploy-prod:
+  Wait-for-approval:
     needs: Deploy-dev
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ steps.deploy_info.outputs.deployment_url }}
+    steps:
+      - name: Deployment Info
+        id: deploy_info
+        run: |
+          echo "Waiting for manual approval before deploying to production"
+          echo "deployment_url=https://github.com/${{ github.repository }}/actions/workflows/docker-build-deploy.yml" >> $GITHUB_OUTPUT
+
+  Deploy-prod:
+    needs: Wait-for-approval
     runs-on: ubuntu-22.04
     steps:
       - name: Deploy to AWS GPU Instance
