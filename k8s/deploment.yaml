@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: train-qat-ao
+  labels:
+    app: train-qat-ao
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: train-qat-ao
+  template:
+    metadata:
+      labels:
+        app: train-qat-ao
+    spec:
+      tolerations:
+        - key: "training"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+      containers:
+        - name: train-qat-ao
+          image: testtorch_v7:latest  # 🔹 Replace with actual image name
+          ports:
+            - containerPort: 8080
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+          args: ["bash","python3", "train_qat_ao.py", "-i", "/archive", "-o", "/archive", "-sz", "224", "-b", "32", "-e", "1", "--model-name", "m12erw3", "-u", "http://localhost:8080", "-exp", "exp123", "-lr", "0.0001", "--device", "0"]
+        - volumeMounts:
+            - name: archive
+              mountPath: /archive
+      volumes:
+        - name: archive
+          hostPath: /home/iwizards/Documents/nikhil/archive
+          type: Directory

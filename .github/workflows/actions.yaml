@@ -86,9 +86,9 @@ jobs:
       - name: Run Docker Container
         run: |
           docker run -d --name train_qat_ao \
-            --runtime=nvidia --gpus=all \
+            --runtime=nvidia --gpus=all --ipc host -v /home/iwizards/Documents/nikhil/archive:/archive \
             -p 8080:8080 \
-            ${{ needs.build.outputs.image }}
+            ${{ needs.build.outputs.image }} --entrypoint /bin/bash -c "while true; do sleep 30; done"
 
   Wait-for-approval:
     needs: Deploy-dev
@@ -102,7 +102,18 @@ jobs:
         run: |
           echo "Waiting for manual approval before deploying to production"
           echo "deployment_url=https://github.com/${{ github.repository }}/actions/workflows/docker-build-deploy.yml" >> $GITHUB_OUTPUT
-
+  
+  Deploy-stag:
+    needs: Wait-for-approval
+    runs-on: self-hosted
+    steps:
+      - name: test gpu setup
+        run: |
+          kubelet apply -f k8s/gpu-test.yaml
+      - name: Deploy to staging environment in k3s
+        run: |
+          # get k8s manifest
+            kubectl apply -f k8s/deployment.yaml       
   Deploy-prod:
     needs: Wait-for-approval
     runs-on: ubuntu-22.04

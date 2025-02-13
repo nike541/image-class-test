@@ -5,6 +5,7 @@ from model import *
 from qat import *
 from data import *
 import mlflow
+from mlflow.tracking import MlflowClient
 import time
 import copy
 from tqdm.auto import tqdm
@@ -146,9 +147,10 @@ def arguments(args):
     ap.add_argument("-exp", "--exp_name", required=True,help="experiment name")
     ap.add_argument("-lr", "--learning_rate", required=True,help="learning rate",type=float)
     ap.add_argument("-d", "--device", required=True,help="GPU Device",type=int)
+    ap.add_argument("-v", "--version", required=True,help="model version",type=int)
     args = ap.parse_args(args)
     print(args)
-    return [args.data+"/train",args.data+"/val",args.output,args.img_sz,args.batch,args.epochs,args.model_name,args.mlflow_url,args.exp_name,args.learning_rate,args.device]
+    return [args.data+"/train",args.data+"/val",args.output,args.img_sz,args.batch,args.epochs,args.model_name,args.mlflow_url,args.exp_name,args.learning_rate,args.device,args.version]
 
 def load_torchscript_model(model_filepath, device):
 
@@ -178,7 +180,7 @@ def save_q_model(model,model_name):
 
 if __name__ == '__main__':
 
-    train_dir,val_dir,dest,IMAGE_SIZE,BATCH_SIZE,EPOCHS,model_name,MLFLOW_URL,EXP_NAME,lr,DEVICE= arguments(sys.argv[1:])
+    train_dir,val_dir,dest,IMAGE_SIZE,BATCH_SIZE,EPOCHS,model_name,MLFLOW_URL,EXP_NAME,lr,DEVICE,VERSION= arguments(sys.argv[1:])
     DEVICE = "cuda:"+str(DEVICE) if torch.cuda.is_available() else 'cpu'
 
     dataset_train, dataset_valid, dataset_classes = get_datasets(train_dir,val_dir,IMAGE_SIZE,True)
@@ -186,8 +188,7 @@ if __name__ == '__main__':
     train_loader, valid_loader = get_data_loaders(BATCH_SIZE,2,dataset_train, dataset_valid)
 
     num_classes = len(dataset_classes)
-
-
+    client = MlflowClient()
     model =  QuantizeTrainModel(num_classes=num_classes)
 
     # Total parameters and trainable parameters.
@@ -280,6 +281,20 @@ if __name__ == '__main__':
                 best_accuracy=valid_epoch_acc
                 quantized_model = get_quantized_model_from_weight(qat_model)
                 mlflow.pytorch.log_model(quantized_model, "best")  
+
+            try:
+               client.create_registered_model(model_name)
+            except Exception:
+                pass  # Model already exists
+    
+            model_version = client.create_model_version(
+                name=model_name,
+                source=str(VERSION),
+                run_id=mlflow.active_run().info.run_id,
+            )
+    
+            print(f"Registered Model: {model_name}, Version: {model_version.version}")
+
 
             # print('estimated time of completion:',(time.time()-epoch_time)*(epochs-epoch-1)/3600,' hrs ')
 
